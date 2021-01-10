@@ -16,10 +16,15 @@ library(glmnet)
 library(Hmisc)
 library(ROCR)
 library(optimx)
+library(qrcm)
+library(rmda)
+url <- "https://cran.r-project.org/src/contrib/Archive/norm2/norm2_2.0.3.tar.gz"
 pkgFile <- "norm2_2.0.3.tar.gz"
 download.file(url = url, destfile = pkgFile)
 install.packages(pkgs=pkgFile, type="source", repos=NULL)
 library(norm2)
+library(devtools)
+install_git("https://github.com/BavoDC/CalibrationCurves")
 #Data preparation
 dat <- read_csv("C:/Users/akihi/Downloads/Clinical_prediction_model_lecture/CPR-lecture/Sample_data.csv",
                 locale = locale(encoding = "SHIFT-JIS"),
@@ -43,10 +48,8 @@ dat <- read_csv("C:/Users/akihi/Downloads/Clinical_prediction_model_lecture/CPR-
                 guess_max = 1500, 
                 na = "NA") 
 dat %>% glimpse()
-par(mfrow=c(1,1))
 na.patterns <- naclus(dat)
 plot(na.patterns, ylab="Fraction of NAs in common")
-par(mfrow=c(2,2))
 naplot(na.patterns)
 na.pattern(dat)
 aggr(dat)
@@ -65,9 +68,10 @@ dat_e <- dat %>%
 dat_e %>% glimpse()
 dat_c <- dat %>% 
   na.omit()
+dat_c <- dat_c %>% 
+  mutate_all(.funs = ~ as.numeric(.))
 dat_ec <- dat_e %>% 
   na.omit()
-summary(dat)
 #Complete case analysis
 ##Development
 full <- lrm(death ~ age+gender+hr+rr, data=dat_c, x = TRUE, y = TRUE)
@@ -86,7 +90,11 @@ Bscaled
 #Pearson R2
 cor(x=plogis(full$linear.predictors), y=full$y)^2
 #Calibration
-val.prob(logit=full$linear.predictor, y=full$y)
+val.prob(logit=full$linear.predictor, y=full$y) #Loess smoother
+val.prob.ci(logit=full$linear.predictor,y=full$y, pl=T,smooth=T,logistic.cal=F, g=10,
+            xlab="Predicted risk",
+            ylab="Death",riskdist='predicted',
+            d1lab="Death", d0lab="Alive", dist.label=-0.95, cutoff=.2)
 #Set up Hosmer-Lemeshow test
 #p:predicted probability
 #Y:outcome variable
@@ -113,10 +121,23 @@ hl.ext2<-function(p,y,g=10, df=g-1)
   result  <- list(table(groep), matres,chisqr,pval) 
 }
 hl.ext2(p=plogis(full$linear.predictor),y=full$y, g=10, df=9) #Df: external -> g-1, internal -> g-2
-#Disrimination
+#Discrimination
 #Discrimination slope
 mean(plogis(lp[full$y==1])) - mean(plogis(lp[full$y==0]))
 #ROC curve
+AUC <- function(xb.hat,y){
+  n<-length(xb.hat)
+  n1<-sum(y)
+  mean.rank <- mean(rank(xb.hat)[y == 1])
+  AUC<-(mean.rank - (n1 + 1)/2)/(n - n1)
+  return(AUC) }
+AUC(full$linear.predictor, full$y)
+cstatNo <- rcorr.cens(full$linear.predictors, full$y) 
+cat(cstatNo[1], "[", cstatNo[1]-1.96/2*cstatNo[3], " - ", cstatNo[1]+1.96/2*cstatNo[3],"]")
+cstatYes <- rcorr.cens(full_up$linear.predictors, full_up$y) 
+cat(cstatYes[1], "[", cstatYes[1]-1.96/2*cstatYes[3], " - ", cstatYes[1]+1.96/2*cstatYes[3],"]")
+cstat_bet <- cstatYes - cstatNo
+cat(cstat_bet[1], "[", cstat_bet[1]-1.96/2*cstat_bet[3], " - ", cstat_bet[1]+1.96/2*cstat_bet[3],"]")
 #Lorenz curve
 pred.full <- prediction(full$linear.predictor, full$y)
 perf <- performance(pred.full, "tpr", "fpr")
@@ -138,19 +159,6 @@ plot(x= plogis(full$linear.predictors), y= plogis(full_up$linear.predictors),
      las=1,pty='s',xlim=c(0,1),ylim=c(0,1),
      pch=(full$y+.5)*2) # pch 1 and 3
 abline(a=0,b=1)
-#CI around c-statistics
-cstatNo <- rcorr.cens(full$linear.predictors, full$y) 
-cat(cstatNo[1], "[", cstatNo[1]-1.96/2*cstatNo[3], " - ", cstatNo[1]+1.96/2*cstatNo[3],"]")
-cstatYes <- rcorr.cens(full_up$linear.predictors, full$y) 
-cat(cstatYes[1], "[", cstatYes[1]-1.96/2*cstatYes[3], " - ", cstatYes[1]+1.96/2*cstatYes[3],"]")
-cstatYes - cstatNo
-cstatvAL <- rcorr.cens(lp.val, val$death) 
-cat(cstatvAL[1], "[", cstatvAL[1]-1.96/2*cstatvAL[3], " - ", cstatvAL[1]+1.96/2*cstatvAL[3],"]")
-par(mfrow = c(1,3), pty='s', mar=c(4.2,4,4,1),cex=0.95, font =1, col=1)
-val.prob.ci(logit=full$linear.predictor,y=full$y, pl=T,smooth=T,logistic.cal=F, g=10,
-            xlab="Predicted risk",
-            ylab="Observed death",riskdist='predicted',
-            d1lab="Death", d0lab="Alive", dist.label=-0.95, cutoff=.2)
 #NRI&IDI
 slopeNo <- mean(plogis(full$linear.predictors[full$y==1])) - mean(plogis(full$linear.predictors[full$y==0]))
 slopeYes <- mean(plogis(full_up$linear.predictors[full_up$y==1])) - mean(plogis(full_up$linear.predictors[full_up$y==0]))
@@ -176,14 +184,47 @@ tabYes <- table(YesSBP, full$y )
 tabYes[3:4]+tabYes[1:2]
 tabYes[3:4]/(tabYes[3:4]+tabYes[1:2])
 improveProb(x1=as.numeric(NoSBP)-1, x2=as.numeric(YesSBP)-1, y=full$y) #NRI and IDI calculations with Harrell's functions
+#Decision curve analysis
+set.seed(1234)
+baseline.model <- decision_curve(death ~ age+gender+rr+hr, data = dat_c, bootstrap=500)
+update.model <- decision_curve(death ~ age+gender+rr+hr+sbp, data = dat_c, bootstrap=500)
+plot_decision_curve(list(baseline.model,update.model), 
+                    curve.names=c("Baseline","Update"), standardize = F, # NB
+                    confidence.intervals=F, xlab="Risk threshold", # Change labels
+                    cost.benefit.xlab= "Harm:Benefit Ratio")
 ##Internal validation
 validate(full, B=200)
-B <- 200
-for (i in 1:B) {
-  dat_c_b <- dat_c[sample(nrow(dat_c), replace=T),]
-  full.gam.gcv.B <- gam(death ~ s(age) + gender+s(hr)+s(rr), data = dat_c, family = binomial)
-  val.prob(y=dat_c_b$death, logit=predict(full.gam.gcv.B))
-}
+val <- dat_ec #instead of external data
+#Calibration
+
+#Discrimination
+dim(dat_c)
+full$stats[c(6,7)] # AUC + Dxy
+iter <- 2000 #reasonable number for CI estimation
+B    <- 100  # standard for bootstrapping; makes bias correction a constant
+ni   <- 200
+AUCoptimism <- function(iter=2000, B=100, ni=200, data=dat_c) {
+  results <- matrix(nrow=iter,ncol=6)
+  colnames(results) <- Cs(Dapp, SEapp, optimism, Dcorr, Dval, Delta)
+  ncol.data <- ncol(data)
+  for (i in 1:iter) {
+    set.seed(i) # to generate reproducible samples with i 1:iter; validate with different B
+    j <- sample(x=nrow(dat_c), size=ni) # random sample from data
+    dataf.i <- data[j,]
+    fit.i <- lrm(death~age+gender+rr+hr, data=dataf.i, x=T,y=T) 
+    results[i,1:4] <- c(rcorr.cens(fit.i$linear.predictors, fit.i$y)[c(2,3)], 
+                         validate(fit.i, B=B)[1,c(4,5)])
+    val.i <- data[-j,] #Validation set; n - j size
+    lp.i  <- as.matrix(val.i[,1:(ncol.data-1)]) %*% coef(fit.i)[-1] # linear predictor in validation set
+    results[i,5] <- ((AUC(lp.i, val.i[,ncol.data]) - .5) * 2) # D at validation
+    if (i %% 50 == 0) cat ("Iter:", i, "\n")  } # end loop over iter
+  # calculate closeness of approximation
+  results[,6] <- results[,4] - results[,5] # Dcorr - Dval 
+  SEval <- sqrt(var(results[,6]))
+  SEapp <- mean(results[,2])
+  cat("\nSEapp/SEval:",SEapp/SEval) 
+  return(results ) }
+results.10var.n200.B100   <- AUCoptimism(iter=2000, B=100, ni=200, data=dat_c)
 #Bootstrap discrimination slope
 nrowB	<- nrow(dat_c)
 B <- 200            # 200 bootstraps
@@ -201,12 +242,27 @@ for (i in 1:B) {
   matB[i,2] <- mean(plogis(lp[full$y==1])) - mean(plogis(lp[full$y==0]))  # Testing on original sample
   
 }
-cat("\n\nEinde bereikt!\n\n")
 matB[,3] <- matB[,1] - matB[,2] # optimism
-# matB bekijken mean en SD
 apply(matB,2,mean)
 apply(matB,2,sd)
-##External validation
+#CI around c-statistics
+cstatNo <- rcorr.cens(full$linear.predictors, full$y) 
+cat(cstatNo[1], "[", cstatNo[1]-1.96/2*cstatNo[3], " - ", cstatNo[1]+1.96/2*cstatNo[3],"]")
+cstatYes <- rcorr.cens(full_up$linear.predictors, full$y) 
+cat(cstatYes[1], "[", cstatYes[1]-1.96/2*cstatYes[3], " - ", cstatYes[1]+1.96/2*cstatYes[3],"]")
+cstatYes - cstatNo
+#For external validation
+seed(1234)
+ncol.data <- ncol(dat_c)
+j <- sample(x=nrow(dat_c), size=nrow(dat_c), replace = T) # random sample from data
+val <- dat_c[j,]
+dim(val)
+lp.val  <- predict(object=full, newdata = val)
+slopeVal <- mean(plogis(lp.val[val$death==1])) - mean(plogis(lp.val[val$death==0])) #IDI
+slopeVal
+ValReclass <- cut(plogis(lp.val),breaks = c(0,.2,1), labels = c("Val, <=20%","Val, >20%"))
+table(ValReclass, val$death) #NRI
+#For CURB-65
 dat_ec <-dat_ec %>% 
   mutate(score = age_cat+bun_cat+rr_cat+bp_cat+ams) %>% 
   mutate(score = as.factor(score))
@@ -214,8 +270,9 @@ table1 <- CreateTableOne(vars = "death",
                          strata = "score",
                          data = dat_ec)
 summary(table1)
-ext.full <- lrm(death ~ age_cat+bun_cat+rr_cat+bp_cat+ams,
-                data=dat_ec, x=TRUE, y=TRUE)
+ext.full <- glm(death ~ offset(1*(age_cat+bun_cat+rr_cat+bp_cat+ams)),
+                data=dat_ec, x=TRUE, y=TRUE) #Not lrm
+dcaVal  <- dca(yvar=val$death, xmatrix=plogis(lp.val), prob="Y")
 ###Penalization
 #Restricted cubic splines
 lrm(death ~ rcs(age,4) + gender + rcs(hr,4)+rcs(rr,4), data = dat_c)
@@ -227,7 +284,7 @@ gam(death ~ s(age) + gender+s(hr)+s(rr), data = dat_c, family = binomial)
 glmmod <- glmnet(full$x, y=full$y, alpha=1, family="binomial")
 ##Multilevel model
 #Random intercept model
-ICCest(as.factor(hospital),death, data=dat_c, alpha=0.05, CI.type="Smith")
+ICCest(as.factor(hospital), death, data=dat_c, alpha=0.05, CI.type="Smith")
 dat_c$age.m <- ave(dat_c$age, dat_c$hospital)
 dat_c$age.cwc <- dat_c$age - dat_c$age.m
 dat_c$gender.m <- ave(dat_c$gender, dat_c$hospital)

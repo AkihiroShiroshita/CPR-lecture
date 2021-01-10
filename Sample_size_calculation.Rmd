@@ -1,0 +1,260 @@
+---
+title: "サンプルサイズ計算について"
+author: "一宮西病院呼吸器内科　城下彰宏（PGY6）"
+date: "`r format(Sys.time(), '%Y/%m/%d')`"
+output:
+  pdf_document: 
+    latex_engine: xelatex 
+    number_sections: true
+documentclass: bxjsarticle
+header-includes: 
+  - \usepackage{zxjatype} 
+  - \usepackage[ipa]{zxjafont} 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
+  dev = "cairo_pdf",
+  dev.args = list(family = "ipaexg"),
+  out.width = ".8\\linewidth"
+)
+```
+
+## 総論  
+サンプルサイズ計算の要素  
+- **Sample size**  
+- **Minimum detectable difference**：$H_0$と$HA$それぞれのstatisticsの意味のある差。
+- **Power（検出力）**：実際に差があった場合に、「差がある」と判断する確率。$1-β$、つまり、alternative hypothesis（$H_A$）の下でcritical valueを越える確率（rejecction region）。  
+- **One-sided or two-sided**  
+- **Allocation ratio**
+Target populationからのrandom samplingがstudy sampleであり、
+Null hypothesis（$H_0$）が正しいという仮定の下でsampleから推定されたstatisticが「本当の（target populationの）statistic」と違うのかを検討する。  
+Critical valueよりも大きい場合にそれは起こりうる可能性の低い仮定となり、null hypothesisは棄却され、$H_A$が採択される。  
+
+Type $I$ error（$α$）：$H_0$が正しいときに間違って$H_0$を棄却してしまう確率  
+Type $I\hspace{-.1em}I$ error（$β$）：$HA$が正しいときに間違って$H_0$を棄却し損なう確率
+仮説検定の場合は通常Type Ⅰ errorのみを考慮しているため、サンプルサイズ計算が特に重要ということになる。
+それぞれの概念を図式化して確認してみる。      
+**Type $I$ errorの概念**  
+![type1](C:/Users/akihi/Downloads/Clinical_prediction_model_lecture/CPR-lecture\type1.png)   
+**Powerの概念**  
+![power](C:/Users/akihi/Downloads/Clinical_prediction_model_lecture/CPR-lecture\power.png)  　　
+**Type $I\hspace{-.1em}I$ errorの概念**   
+![type2](C:/Users/akihi/Downloads/Clinical_prediction_model_lecture/CPR-lecture\type2.png)  
+  
+  
+Rでは単純なサンプルサイズ計算はpwr packageで行うことができる。  
+
+## One sample mean（cross-secrional aspect）  
+$H_0$：$\mu$=$\mu_0$、$H_A$：$\mu > $\mu_1$となる。
+Sample standard deviation = s = $\sqrt{\frac{1}{N-1}\sum^n_{i=1}(x_i-\overline{x})^2}$であり、population standard deviation = $\sigma$ = $\frac{s}{\sqrt{N}}$である。StatisticsはT = $\frac{\overline{x}-\mu_o}{\sigma/\sqrt{n}}$（Tは$\sigma$が既知の場合は正規分布に、$\sigma$がsによって推定される場合はt分布に従う）であるため、T > $Z_\alpha$（two-sidedの場合は|T| $\geq Z_{\alpha/2}$）の場合に$H_0$が棄却される。実際は$\alpha$=0.05であり、one-sidedの場合は$Z_\alpha$ = 1.64である。
+
+```{r 1, message=FALSE, warning=FALSE}
+library(pwr)
+#TO CALCULATE SAMPLE SIZE
+power.t.test(delta=3, sd=1, power=0.8, type="one.sample", alternative="one.sided")
+
+#TO CALCULATE DELTA
+power.t.test(n=50, sd=1, power=0.8, type="one.sample", alternative="one.sided")
+
+#TO CALCULATE POWER
+power.t.test(n=50, delta=3, sd=1, type="one.sample", alternative="one.sided")
+```
+  
+## Two sample mean（cross-secrional aspect） 
+Population 1とPopulation 2からそれぞれのsampling populationを考える。  
+T = $\frac{\overline{x_1}-\overline{x_2}}{\sigma_{\overline{x_1}-\overline{x_2}}}$であるが、2つのpopulationの分散が等しく既知の場合と等しく未知の場合、等しくなく未知の場合に分かれる（数式は割愛）。考え方はone sample meanと同様である。  
+ちなみにpaired two sample comparisonの場合はone sample caseと同様に扱うことができる。  
+以下は2つのpopulationの分散が等しい場合の計算である。
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+d<-1/1.4
+pwr.t.test(d=d, n=30, sig.level=0.05, type="two.sample", alternative="two.sided")
+#n is the total sample size. assume equal allocation between the two groups.
+#d is the standardized effect size. i.e. (mu1-mu0)/SD
+
+#TO CALCULATE SAMPLE SIZE
+pwr.t.test(d=d, power=0.8, sig.level=0.05, type="two.sample", alternative="two.sided")
+```
+  
+2つのpopulationの分散が未知の等しくない場合も参考までに掲載する。  
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+powerfunc<-function(alpha, mu1, mu2, sigma1, sigma2, n1, n2){
+	delta<-mu1-mu2
+	sat.df<-(sigma1^2/n1+sigma2^2/n2)^2/((1/(n1-1))*(sigma1^2/n1)^2+(1/(n2-1))*(sigma2^2/n2)^2) #Satterwhith df.
+	non.centr<-delta/(sqrt(sigma1^2/n1+sigma2^2/n2)) #Non-centrarality parameter
+	#Two sided alternative
+	power<-pt(qt(p=(1-alpha/2), df=sat.df, lower.tail=TRUE),df=sat.df, ncp=non.centr, lower.tail=F)+
+		pt(qt(p=(alpha/2), df=sat.df, lower.tail=TRUE),df=sat.df, ncp=non.centr, lower.tail=T)
+	return(power)
+}
+powerfunc(alpha=0.05, mu1=5, mu2=3, sigma1=1, sigma2=2, n1=40,n2=50)
+#TO CALCULATE SAMPLE SIZE
+n<-seq(50,80,1)
+n1<-n
+n2<-n
+power.result<-c()
+for (i in 1:length(n)){
+	power.result[i]<-powerfunc(alpha=0.05, mu1=5, mu2=3, sigma1=1, sigma2=2, n1=n1[i],n2=n2[i])
+}
+power.result
+```
+
+
+## Correlation coefficient, simple linear regression, and multiple linear regression  
+Correlation coefficientであるrはskewed dataなので、Fisher's Z transformationを行わないといけない（r: F(r)=$\frac{1}{2}ln(\frac{1+r}{1-r})$）。
+F(r)は正規分布に従うことが知られている。そこでT=$\frac{F(r)-F(\rho_0)}{\sigma_{F(r)}}$ となり、$\sigma_{F(r)}=\frac{1}{\sqrt{N-3}}$からこれまでと同様に検定について考えることができる。  
+ただし、Rではsimple linear regression Y=$\beta_0+\beta_1X+\epsilon$、つまり、$\hat{\beta_1}=\frac{\sum^N_{i=1}{(x_i-\overline{x})(y_i-\overline{y})}}{SS_x}$（$SS_x = \sum^N_{i=1}{(x_i-\overline{x})^2}$）において、$H_0: \beta_1 = 0$とすることで計算する。T=$\frac{\hat{\beta_1}-0}{\sigma_{\hat{\beta}}}$がF分布（df=1, N-2）に従うことから計算するということである。そこで、$SS_x$とresifual varianceが必要になる。  
+Rではmultiple linear regressionも対応しているpwr.f2.test functionを使用する。他のパッケージもあるので、色々と試してみると良いかもしれない。
+```{r message=FALSE, warning=FALSE}
+sd.y<-1
+sd.x<-6
+b<-0.1
+sd.e<-sqrt(sd.y^2-0.1^2*sd.x^2) #This is the standard deviation of residuals. 
+r.sq<-1-(sd.e^2/sd.y^2)	#This is the R_square.
+r.sq 
+
+pwr.f2.test(u=1, f2=r.sq/(1-r.sq), power=0.8) 
+#u is the DF of numerator,
+#since this is simple linear regression testing for one variable, u=1. 
+#v is left unspecified but power= is specified, so this is requesting output for n.
+#v:the DF of the denominator
+#v=N-2 -> N=v+2.
+```
+## One sample proportion（cross-secrional aspect） 
+Binary outcomeつまり、2*2表の書けるoutcomeについて。
+Y=$Y_1+Y_2+.....Y_n$で、Yは二項分布binomial(n,p)に従う（p=prevalence of characteristics）。ここでpを推定したいので、実際のデータから求めら$\hat{p}=y/n$であるので、$H_0: p=p_0$を仮定することで検定ができる。サンプルサイズが「充分に」大きくなるとsampling distributionは正規分布に近似できることを用いて、p$\hat{p}$は平均$\hat{p}$で、分散$n*\hat{p}*p$の正規分布に従うことになる。T=$\frac{\hat{p}-p_o}{\sqrt{p_0(1-p_0)/n}}$がstatisticsになり、これまで通りの検定ができる 。ちなみに「充分に」というのは$p_0*(1-p_0)*n>5$を目安にしている。近似できない（サンプルサイズが小さい）場合はarc-sin transformationを行なうという選択肢がある。$2srcsin(\sqrt{\hat{p}}) \sim Normal(2arcsin\sqrt{p}, 1/n)$を用いて検定する。
+Rのpwr packageはarcsine transformationを用いていることに注意が必要である。
+
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+h <- ES.h(0.02, 0.03)
+pwr.p.test(h=h, n=300, sig.level=0.05, power=NULL, alternative="two.sided")
+
+#To CALCULATE SAMPLE SIZE
+h <- ES.h(0.02, 0.03)
+pwr.p.test(h=h, n=NULL, sig.level=0.05, power=.8, alternative="two.sided")
+
+```
+
+
+## Two sample proportion（cross-secrional aspect）   
+2つのpopulationを想定し、Fisher's exact testで検定する。Cumulative incidenceの場合も2*2表を作成できるので同様である（ただし、loss to follow-upを考慮しなくてはいけない）。  
+2つのsample sizeが等しい場面を想定したRのコードを記載した。ここでは両群のサンプルサイズが異なっていても使用できるpwr.2p2n.test functionを使用したが、pwr.p.testでも計算できる。
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+h <- ES.h(0.4, 0.5)
+pwr.2p2n.test(h, 200, 300)
+
+#To CALCULATE SAMPLE SIZE
+h <- ES.h(0.4, 0.5)
+pwr.2p.test(h, power=0.8)
+pwr.2p2n.test(h, n1=1000, n2=NULL, sig.level=0.05, power=0.8, alternative="two.sided")
+```
+
+## Two sample difference, ratios, and odds ratios（cross-secrional aspect）  
+Two sample proportionとほとんど同じである。Statisticsがdifferenceは$Z_{\delta}=\frac{\hat{\delta}}{SE(\hat{\delta})}$、ratiosは$Z_{\rho}=\frac{ln\hat{\rho}}{SE(ln\hat{\rho})}$、odds-ratioは$Z_{\theta}=\frac{ln\hat{\theta}}{SE(ln\hat{\theta})}$であるのが違いとなる。Statisticsを正規分布に近似していることもproportionの場合と同じである。  
+
+## Incidence rate（longitudinal aspect）  
+Incidence rate（mortality）はat-risk timeを考慮しないといけない（I=y/T=Total number of events/Total person-time at risk）。まず、仮定として、ある時点でeventの起こる可能性はどの患者でも等しいとする。Yはポアソン分布に従い(Poisson($\lambda$, T)に従う）、Tは研究デザインから固定されているとすると、$y/T = T\lambda/T=\hat{\lambda}$がincidence rateとなる。 
+$H_0$: $\lambda=\lambda_0$、$H_1$: $\lambda \neq \lambda_0$(two-sided)となる。$H_0$を仮定し、$T\lambda > 30$の場合はポアソン分布は正規分布に近似することができる$Y \sim N(T\lambda, T\lambda)$ことから、分散が既知の場合と同様の検定ができる。ちなみに、W = $\sqrt{Y}$ とし、$W \sim N(\sqrt{T\lambda}, 1/4)$)や、Event数が少ないときはexact methodsも使用される。  
+まずはone sample incidenceのコードから掲載する。  
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+rate.power.one <- function(rnull,ralt,ttt,alpha,sss) {
+xnull <-sqrt(rnull*ttt) #rnull: null rate, ttt:person time  
+xalt <- sqrt(ralt*ttt) #anull: alternative rate
+int1 <-(xnull-xalt)/sqrt(0.25)
+zalp <- qnorm(1-alpha/sss) #sss=1, 2 sided
+int2 <- 1-pnorm(zalp+int1)
+int2}
+#TO CALCULATE SAMPLE SIZE
+rate.ss.one <- function(rnull,ralt,pow,alpha,sss) {
+xnull <-sqrt(rnull)
+xalt <- sqrt(ralt)
+zalpha <- qnorm(1-alpha/sss)
+zbeta <- qnorm(pow)
+numerator <- (zalpha + zbeta)
+denom <- xalt - xnull
+final <- 0.25 * (numerator/denom)**2
+final
+}
+```
+
+次にtwo sample incidenceの比較についてのコードを記載する。Incidence rate ratioやincidence rate differenceをstatisticsとし、$H_0$: IRR=1, IRD=0とすることで、それぞれ正規分布に従う$\ln(IRR)=ln(\frac{Y_A}{T_A}/\frac{Y_B}{T_B})$、$\sqrt{Y_A/T_A}-\sqrt{Y_B/T_B}=W_A-W_B$から検定を行う。。IRRとIRDのどちらも使用しても大差はないだろう。  
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+rate.power.twosqrt <- function(r1,r2,n1,n2,alpha,sss) {
+num <- sqrt(r1) - sqrt(r2)
+den <- .5 * sqrt(1/n1 + 1/n2)
+zalpha <- qnorm(1 - alpha/sss)
+int1 <- num / den
+pnorm(int1 - zalpha)
+}
+#TO CALCULATE SAMPLE SIZE
+rate.ss.twosqrt <- function(r1,r2,r,alpha,power,sss) { #r = ratio of sample sizes t2/t1
+term1 <- 1+r
+zalpha <- qnorm(1 - alpha/sss)
+zbeta <- qnorm(power)
+term2 <- 0.25 * (zalpha+zbeta)**2
+term3 <- (sqrt(r1) - sqrt(r2))**2
+ss1 <- term1 * term2 / term3
+ss2 <- ss1*r
+list(ss1,ss2)
+}
+```
+
+##Continuous outcome（longitudinal aspect）  
+Continuous outcomeが経時的に変化する場合についてはpaired t-testやtwo-sample paired t-testを行うことを想定する。
+
+##Binary outcome（longitudinal aspect）
+Binary outcomeが経時的に変化する場合については、
+
+## Survival outcomes（longitudinal aspect）
+Log-rank testを想定したtime-to-event outcomeのサンプルサイズ計算については、censoringについて（特にright censoring）について考慮しないといけない。ここではSchoenfeld methodを紹介する。
+Survival function S(t)=Pr(T>t)=1-Pr(T$\leq$t)はnonparametric methodのKaplan-Meier curveで推定できる。一方、hazard functionは$\lambda(t)=P(T=t|T\geq t)=\frac{P(T=t)}{P(T\geq t)}$（T:discrete）、つまりinstantaneous failure rate（tまで生存した患者がtでeventを発生するrisk）を表す。Log-rank testは$H_0$: $\lambda_A(t)=\lambda_B(t)$（または$S_A(t)=S_b(t)$）、$H_A$: $\lambda_A(t)\neq \lambda_B(t)$(two-sided)と仮定する検定であり、それぞれのfailure timeで2*2表を作成してまとめるイメージである。そこで、$H_0$: $\theta = 0$ ($\theta=\log(\frac{\lambda_1}{\lambda_0})$)と変換することができ（hazard ratio）、statisticsを$\chi~2(df=1)$を考えることができる。ここから、必要なevent数はm=$\frac{Z_{\alpha/2}+Z_{\beta})^2}{\theta^2 \pi(1-\pi)}$（$\pi\: allocation proportion to first group）と計算できる。
+ここにeventを観測できる確率を考慮して、全体として必要なサンプルサイズを計算しないといけない。$\alpha$：enrollment period、f：フォローアップ期間、proportional hazards modelを仮定したもとでのsurvival functionの情報を合わせて計算する。それぞれの群のsurvival functionから平均を算出して（ $\overline{S}(t)=\pi*\overline{S_0}(t)+(1-\pi)*\overline{S_1}(t)$）、試験終了までにeventの起こる確率を計算する（$\overline{F}(a+f)=1-1/6[\overline{S}(f)+4\overline{S}(0.5a+f)+\overline{S}(a+f)]$。最終的に$N=\frac{m}{\overline{F}(a+f)}$からサンプルサイズが求められる。
+RではHmisc packageを使用する。
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+library(Hmisc) 
+tref<-2.5		#Specify a time about the survival probablity
+n<-4000		#total sample size 
+mc<-0.45	#Probability of having a event by tref, i.e. 1-Survial prob at tref.
+hr<-1.13	#Hazard ratio. 
+r<-(1-((1-(1-mc)^hr)/mc))*100	#Reduction of risk
+#1- the ratio of event probability in intervention group compared to control group
+#at tref. Can be specified directly without useing 
+accrual<-2		#Length of accrual period
+tmin<-3			#Minimum length of follow-up 
+pwr.res<-cpower(tref=tref, n=n, mc=mc, r=r, accrual=accrual, tmin=tmin)
+pwr.res
+#TO CALCULATE SAMPLESIZE
+Nsim<-seq(1000,3000, 100)
+pwr.res<-c()
+for (i in 1:length(Nsim) ){
+	pwr.tmp<-cpower(tref=tref, n=Nsim[i], mc=mc, r=r, accrual=accrual, tmin=tmin,pr=FALSE)
+	pwr.res[i]<-pwr.tmp["Power"]
+}
+pwr.res.all<-cbind(Nsim, pwr.res)
+pwr.res.all
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

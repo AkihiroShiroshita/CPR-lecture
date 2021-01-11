@@ -23,16 +23,16 @@ knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE,
 ## 総論  
 サンプルサイズ計算の要素  
 - **Sample size**  
-- **Minimum detectable difference**：$H_0$と$HA$それぞれのstatisticsの意味のある差。
-- **Power（検出力）**：実際に差があった場合に、「差がある」と判断する確率。$1-β$、つまり、alternative hypothesis（$H_A$）の下でcritical valueを越える確率（rejecction region）。  
+- **Minimum detectable difference**：$H_0$と$HA$それぞれのstatisticsの意味のある差。  
+- **Power（検出力）**：実際に差があった場合に、「差がある」と判断する確率。$1-β$、つまり、alternative hypothesis（$H_A$）の下でcritical valueを越える確率（rejection region）。  
 - **One-sided or two-sided**  
 - **Allocation ratio**
 Target populationからのrandom samplingがstudy sampleであり、
 Null hypothesis（$H_0$）が正しいという仮定の下でsampleから推定されたstatisticが「本当の（target populationの）statistic」と違うのかを検討する。  
-Critical valueよりも大きい場合にそれは起こりうる可能性の低い仮定となり、null hypothesisは棄却され、$H_A$が採択される。  
+Critical valueよりも大きい場合にそれは起こりうる可能性の低い仮定となり、$H_0$は棄却され、$H_A$が採択される。  
 
-Type $I$ error（$α$）：$H_0$が正しいときに間違って$H_0$を棄却してしまう確率  
-Type $I\hspace{-.1em}I$ error（$β$）：$HA$が正しいときに間違って$H_0$を棄却し損なう確率
+Type $I$ error（$α$）：$H_0$が正しいときに間違って$H_0$を棄却してしまう確率    
+Type $I\hspace{-.1em}I$ error（$β$）：$H_A$が正しいときに間違って$H_0$を棄却し損なう確率
 仮説検定の場合は通常Type Ⅰ errorのみを考慮しているため、サンプルサイズ計算が特に重要ということになる。
 それぞれの概念を図式化して確認してみる。      
 **Type $I$ errorの概念**  
@@ -61,6 +61,34 @@ power.t.test(n=50, sd=1, power=0.8, type="one.sample", alternative="one.sided")
 power.t.test(n=50, delta=3, sd=1, type="one.sample", alternative="one.sided")
 ```
   
+Packageを使用しない方法も参考までに記載しておく。  
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+spone <- function(pnull,palt,n,alpha,sss)
+{
+qnull <- 1-pnull
+qalt <- 1-palt
+sqv0 <- sqrt((pnull*qnull)/n)
+sqv1 <- sqrt((palt*qalt)/n)
+zalp <- qnorm(1-alpha/sss)
+int1 <- (palt - pnull - zalp*sqv0)/(sqv1)
+pnorm(int1)
+}
+##RO CALCULATE SAMPLE SIZE
+ssone <- function(pnull,palt,pow,alpha,sss) {
+qnull <- 1-pnull
+qalt <- 1-palt
+sqv0 <- sqrt((pnull*qnull))
+sqv1 <- sqrt((palt*qalt))
+zalpha <- qnorm(1-alpha/sss)
+zbeta <- qnorm(pow)
+numerator <- zalpha*sqv0 + zbeta*sqv1
+denom <- palt - pnull
+(numerator/denom)**2
+}
+```
+
+
 ## Two sample mean（cross-secrional aspect） 
 Population 1とPopulation 2からそれぞれのsampling populationを考える。  
 T = $\frac{\overline{x_1}-\overline{x_2}}{\sigma_{\overline{x_1}-\overline{x_2}}}$であるが、2つのpopulationの分散が等しく既知の場合と等しく未知の場合、等しくなく未知の場合に分かれる（数式は割愛）。考え方はone sample meanと同様である。  
@@ -77,15 +105,46 @@ pwr.t.test(d=d, n=30, sig.level=0.05, type="two.sample", alternative="two.sided"
 pwr.t.test(d=d, power=0.8, sig.level=0.05, type="two.sample", alternative="two.sided")
 ```
   
+Packageを使用しない方法も参考までに記載しておく。  
+```{r message=FALSE, warning=FALSE}
+#CALCULATE POWER
+sptwo <- function(p1,p2,n1,n2,alpha) {
+pbar <- (p1+p2)/2
+delta <- abs(p2-p1)
+zalpha <- qnorm(1-alpha/2)
+intn <- (1/n1) + (1/n2)
+int1 <- (delta/sqrt(pbar*(1-pbar)*intn))
+pnorm(int1 - zalpha)
+}
+#CALCULATE SAMPLE SIZE
+sstwo <- function(p1,p2,r,alpha,power) {
+pbar <- (p1+r*p2)/(r+1)
+qbar <- 1-pbar
+zalpha <- qnorm(1-alpha/2)
+zbeta <- qnorm(power)
+int1 <- zalpha*sqrt((r+1)*pbar*qbar)
++zbeta*sqrt(r*p1*(1-p1)+p2*(1-p2))
+mprime <- int1**2 / (r*(p2-p1)**2)
+# below is continuity correction equation 4.18
+ss1 <- (mprime/4)*(1+sqrt(1+(2*(r+1))/
+(mprime*r*abs(p1-p2))))**2
+ss2 <- ss1*r
+list(ss1,ss2)
+}
+```
+
+
 2つのpopulationの分散が未知の等しくない場合も参考までに掲載する。  
 ```{r message=FALSE, warning=FALSE}
 #TO CALCULATE POWER
 powerfunc<-function(alpha, mu1, mu2, sigma1, sigma2, n1, n2){
 	delta<-mu1-mu2
-	sat.df<-(sigma1^2/n1+sigma2^2/n2)^2/((1/(n1-1))*(sigma1^2/n1)^2+(1/(n2-1))*(sigma2^2/n2)^2) #Satterwhith df.
+	sat.df<-(sigma1^2/n1+sigma2^2/n2)^2/((1/(n1-1))*(sigma1^2/n1)^2+(1/(n2-1))*(sigma2^2/n2)^2) 
+	#Satterwhith df.
 	non.centr<-delta/(sqrt(sigma1^2/n1+sigma2^2/n2)) #Non-centrarality parameter
 	#Two sided alternative
-	power<-pt(qt(p=(1-alpha/2), df=sat.df, lower.tail=TRUE),df=sat.df, ncp=non.centr, lower.tail=F)+
+	power<-pt(qt(p=(1-alpha/2),
+	             df=sat.df, lower.tail=TRUE),df=sat.df, ncp=non.centr, lower.tail=F)+
 		pt(qt(p=(alpha/2), df=sat.df, lower.tail=TRUE),df=sat.df, ncp=non.centr, lower.tail=T)
 	return(power)
 }
@@ -96,7 +155,8 @@ n1<-n
 n2<-n
 power.result<-c()
 for (i in 1:length(n)){
-	power.result[i]<-powerfunc(alpha=0.05, mu1=5, mu2=3, sigma1=1, sigma2=2, n1=n1[i],n2=n2[i])
+	power.result[i]<-powerfunc(alpha=0.05, mu1=5, mu2=3,
+	                           sigma1=1, sigma2=2, n1=n1[i],n2=n2[i])
 }
 power.result
 ```
@@ -193,7 +253,8 @@ int1 <- num / den
 pnorm(int1 - zalpha)
 }
 #TO CALCULATE SAMPLE SIZE
-rate.ss.twosqrt <- function(r1,r2,r,alpha,power,sss) { #r = ratio of sample sizes t2/t1
+rate.ss.twosqrt <- function(r1,r2,r,alpha,power,sss) { 
+  #r = ratio of sample sizes t2/t1
 term1 <- 1+r
 zalpha <- qnorm(1 - alpha/sss)
 zbeta <- qnorm(power)
@@ -205,11 +266,26 @@ list(ss1,ss2)
 }
 ```
 
-##Continuous outcome（longitudinal aspect）  
-Continuous outcomeが経時的に変化する場合についてはpaired t-testやtwo-sample paired t-testを行うことを想定する。
+## Continuous outcome（longitudinal aspect）  
+Continuous outcomeの2時点の変化についてpaired t-test（one sampleの場合）や変化量についてのtwo-sample t-test（two sampleの場合）を行うことを想定する。 注意点は変化量についてのtwo-sample t-testにおいてSDは変化量のSDであり、$\sigma^2_{change} = \sigma^2_{time1} + \sigma^2_{time2} - 2\rho\sigma_{time1}\sigma_{time2}$ つまり、それぞれの時点のoutcomeのSDだけではなく、時点同士のSDのcorrelationも指定しないといけない。
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE SAMPLE SIZE (one sample)
+pwr.t.test(d=(0-5)/5, power=0.8, sig.level=0.05, type="paired", alternative="two.sided")
+#TO CALCULATE SAMPLE SIZE (two sample)
+cohensD<-(6-5)/sqrt(6^2+5^2/2)
+#cohensD <- (mean(aM)-mean(aP))/(sqrt((sd(aM)^2+sd(aP)^2)/2))
+pwr.t.test(d = cohensD, power=0.8, type = "paired", alternative = "two.sided", sig.level= 0.05)
+```
 
-##Binary outcome（longitudinal aspect）
-Binary outcomeが経時的に変化する場合については、
+
+## Binary outcome（longitudinal aspect）
+Binary outcomeの2時点の変化について、よくある状況は同じ群でprevalenceを2時点で変化を比較するときや関連のある二群でoutcomeの変化の比較を行うときなどである。McNemar's testが使用される。McNemar's testは例えばSTDについてあるsampling patientsで付き合いのある男女のそれぞれの疾患割合を比較する場合を例にしてみる。2*2表を4つのcoupleであるN11(P11), N10(P10), N01(P01), N00(P00)とし、discordant coupleのN01(P01)とN00(P00)について$P_M-P_F=P10-P01$であることからこれらdiscordant coupleのみに注目できる。ここで、$H_0$: $P_F = P_M$（$P_F = P11+P01$と$P_M = P11 + P10$）を仮定すると、statistics T=$\frac{(N_{10}-N{01})^2}{(N_{10}+N{01})}$は$\chi^2(df=1)$に従うことから検定できる。$H_A$におけるsampling distributionはconditional distributionとunconditional distributionの2つの仮定がある。RではTrialSize packageを使用する。
+```{r message=FALSE, warning=FALSE}
+library(TrialSize)
+N<-McNemar.Test(alpha=0.05,beta=0.2,psai=0.2/0.5,paid=.7)
+#psai: the ratio of p01/p10, paid: the sum p10+p01
+N
+```
 
 ## Survival outcomes（longitudinal aspect）
 Log-rank testを想定したtime-to-event outcomeのサンプルサイズ計算については、censoringについて（特にright censoring）について考慮しないといけない。ここではSchoenfeld methodを紹介する。
@@ -241,7 +317,168 @@ pwr.res.all<-cbind(Nsim, pwr.res)
 pwr.res.all
 ```
 
+## Simulation  
+複雑な解析ではtest statisticsが未知であったりモデルの仮定を満たさない場合がある。その際はサンプルサイズ計算はシミュレーションで行わなくてはならない。  
+流れとしては$H_A$のもとでsample sizeを定めてrandom samplingを行い、検定を行う。これを複数回B繰り返し、power=(Number of p-value < 0.05)/Bを計算する。Power<0.8であればsample sizeを増やしてみる、という流れで行う。  
+まずはone sample meanについてシミュレーションしてみる。まずは$H_1$が指数分布に従う場合についてみてみる。
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+p.res<-c() #This is to save the p-values from each simulation
+B<-1000	#No. of simulations
+alpha<-0.05
+mu0<-5.5
+mu1<-6.0
+sd<-1.4	
+N<-30	#Sample size
+for (i in 1:B){	
+	set.seed(12300+123*i)		#Setting the seed number for random number generation, this is to make sure the result will be reproducible.
+	sim.data<-rexp(n=N, rate=1/mu1)
+	p.res[i]<-t.test(x=sim.data,  alternative = c( "greater"),  mu = mu0, conf.level = 1-alpha)$"p.value"
+}
+tmp<-ifelse(p.res<alpha,1,0) 
+power.res<-sum(tmp)/B
+power.res
+```
 
+次に$H_1$が正規分布に従う場合のサンプルサイズ計算についてみてみる。サンプルサイズ計算を網羅的に行う場合はこちらのほうがよりスムーズに行えるだろう。  
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE SAMPLE SIZE
+B.sim<-1000	#No. of simulations
+alpha.sim<-0.05
+mu0.sim<-5.5
+mu1.sim<-6.0
+sd.sim<-1.4	
+targ.power.sim<-0.8
+N.sim<-30:60	#Sample size to try.
+pwr.func<-function(N, B=B.sim, alpha=alpha.sim,
+                   mu0=mu0.sim, mu1=mu1.sim, sd=sd.sim)
+	{
+		p.res<-c() #This is to save the p-values from each simulation
+		for (j in 1:B){	
+			set.seed(12300+123*N*j)		
+			sim.data<-rnorm(n=N, mean=mu1, sd=sd)
+			p.res[j]<-t.test(x=sim.data,  alternative = c( "greater"),
+			                 mu = mu0, conf.level = 1-alpha)$"p.value"
+		}
+		tmp<-ifelse(p.res<alpha,1,0) 
+		power.all<-sum(tmp)/B
+	return(power.all)
+	}
+res.pwr<-c()
+for (i in 1:length(N.sim)){
+	res.pwr[i]<-pwr.func(N=N.sim[i])
+}
+
+res.pwr1<-cbind(N.sim, res.pwr)
+res.pwr1
+
+tmp<-ifelse((res.pwr1[,"res.pwr"]-targ.power.sim)>0,
+            (res.pwr1[,"res.pwr"]-targ.power.sim),100) 
+#This is to identify the N with power closest to target power.
+N.need.pwr1<-res.pwr1[which(tmp==min(tmp)),]
+N.need.pwr1
+
+plot(x=res.pwr1[,"N.sim"], y=res.pwr1[,"res.pwr"]) #Power curve
+```
+
+さらに、$H_0$と$H_A$のどちらのdistributionも未知の場合について考えてみる。この場合は、parameterとtest statisticsを仮定し、$H_0$のもとでrandom samplingを行い、それぞれのsamplingでstatisticsを計算する。それぞれのsamplingから計算されたstatisticsのdistributionをみて、percentileからcritical valueを定める（central limit theorem）。$H_1$のもとでrandom samplingを来ない、$H_0$が棄却されるかを検討する、という流れで行う。
+```{r message=FALSE, warning=FALSE}
+p.res<-c() 
+#This is to save the p-values from each simulation
+B<-1000	#No. of simulations
+alpha<-0.05
+mu0<-5.5
+mu1<-6.0
+sd<-1.4	
+N<-30	#Sample size
+#FIRST GENERATE DATA UNDER H0
+#TO DETERMINE CV AND THUS THE REJECTION REGION
+mean.est.0<-c()
+for (i in 1:B){	
+	set.seed(12300+123*i)		
+  #Setting the seed number for random number generation
+  #this is to make sure the result will be reproducible.
+	sim.data<-rexp(n=N, rate=1/mu0)
+	mean.est.0[i]<-mean(sim.data)
+}
+hist(mean.est.0, freq =FALSE)
+crt.value<-quantile(mean.est.0, probs=1-alpha)
+#GENERATE DATA UNDER H1.
+mean.est.1<-c()
+for (i in 1:B){	
+	set.seed(568+1234*i)		
+	sim.data<-rexp(n=N, rate=1/mu1)
+	mean.est.1[i]<-mean(sim.data)
+}
+pwr.est<-sum(ifelse(mean.est.1>=crt.value, 1,0))/B
+pwr.est
+```
+最後にrandom effects modelについてのシミュレーションを行っておく。$y=u+B_0+B_1x+\epsilon (random-intercept: u \sim N(0,\sigma^2_u), residual:\epsilon \sim N(0,\sigma^2_{\epsilon}))$（y：continuous variable）。$\beta_1$=0.35、一つ上の階層のcorrelation on y = 0.4、yのSD = 0.16と仮定し、  
+
+```{r message=FALSE, warning=FALSE}
+#TO CALCULATE POWER
+library(MASS)
+library(nlme)
+#####Initialize parameters 
+alpha<-0.05
+Bsim<-500
+effect<-0.1
+corr<-0.4
+beta0<-0.6
+sd<-0.40 #For y
+Nsim<-300	#Sample size (i.e total no. of clusters).
+fam.dist<-c(1/3, 1/2, 1/6) 
+#Probability of a cluster having 1, 2, or 3 patients
+#carrying the risk, respectively.
+	rmat<-matrix(c(1, corr, corr, corr, 1, corr, corr, corr,1), nrow=3, ncol=3, byrow=TRUE)
+	#correlation coefficient matrix
+	p.value<-c()	#Initialize p.value
+	for (i in 1:Bsim) {
+		set.seed<-12300+i*11+Nsim*10
+		n.fam<-rmultinom(n=1, size=Nsim, prob=fam.dist) 
+		#Numbers of families with 1, 2, or 3 patients
+		#carrying the risk, respectively.
+		#Generate X the exposure variable
+		x.fam1<-rep(c(1,0,0), n.fam[1])	
+		#the x vector for clusters with 1 patient carrying the risk.
+		id.fam1<-rep(1:n.fam[1], each=3) 
+		#generate the ids for clusters with 1 patient carrying the risk.
+		#every 3 items
+		x.fam2<-rep(c(1,1,0), n.fam[2]) 
+		#the x vector for clusters with 2 patients carrying the risk.
+		id.fam2<-rep(1:n.fam[2], each=3)+n.fam[1] 
+		#generate the ids for clusters with 1 patient carrying the risk.
+		x.fam3<-rep(c(1,1,1), n.fam[3]) 
+		#the x vector for clusters with 3 patients carrying the risk.
+		id.fam3<-rep(1:n.fam[3], each=3)+n.fam[1]+n.fam[2] 
+		#generate the ids for clusters with 1 patient carrying the risk.
+		x.vec<-c(x.fam1, x.fam2, x.fam3)
+		id.vec<-c(id.fam1, id.fam2, id.fam3) 
+		v.mat<-sd*rmat
+		#For clusters with 1 patient carrying the risk
+		set.seed<-12300+i*100+Nsim*1
+		mean.fam1<-beta0+effect*c(1,0,0)
+		y.fam1<-mvrnorm(n.fam[1], mean.fam1, v.mat)
+		#For clusters with 2 patients carrying the risk
+		set.seed<-12300+2*i*100+Nsim*2
+		mean.fam2<-beta0+effect*c(1,1,0)
+		y.fam2<-mvrnorm(n.fam[2], mean.fam2, v.mat)
+		#For clusters with 3 patients carrying the risk
+		set.seed<-12300+3*i*100+Nsim*3
+		mean.fam3<-beta0+effect*c(1,1,1)
+		y.fam3<-mvrnorm(n.fam[3], mean.fam3, v.mat)
+		###Run the LME
+		y.vec<-c(c(t(y.fam1)), c(t(y.fam2)), c(t(y.fam3)))
+		dataset<-data.frame(y.vec, x.vec, id.vec)	#Create the dataset
+		data.formu<-groupedData(y.vec~x.vec|id.vec, data=dataset)	#Attacheh the formula to the dataset attribute
+		res<-lme(data.formu, random=~1)		
+		p.value[i]<-summary(res)$tTable["x.vec","p-value"]
+	}
+
+pwr.func.res<-sum(ifelse(p.value<alpha,1,0))/Bsim
+pwr.func.res
+
+```
 
 
 

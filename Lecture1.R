@@ -194,9 +194,10 @@ plot_decision_curve(list(baseline.model,update.model),
                     cost.benefit.xlab= "Harm:Benefit Ratio")
 ##Internal validation
 validate(full, B=200)
-val <- dat_ec #instead of external data
+nrowB	<- nrow(dat_c)
+Brows <- sample(nrowB,replace=T)
+val <-  dat_c[Brows,] #instead of external data
 #Calibration
-
 #Discrimination
 dim(dat_c)
 full$stats[c(6,7)] # AUC + Dxy
@@ -262,6 +263,17 @@ slopeVal <- mean(plogis(lp.val[val$death==1])) - mean(plogis(lp.val[val$death==0
 slopeVal
 ValReclass <- cut(plogis(lp.val),breaks = c(0,.2,1), labels = c("Val, <=20%","Val, >20%"))
 table(ValReclass, val$death) #NRI
+#Reference value
+full
+full.val <- update(full, data=dat_c_b) #Refitted reference performance
+lp <- predict(full, newdata=dat_c_b)
+val.prob.ci(logit=lp,y=dat_c_b$death)
+n <- nrow(dat_c_b)
+nsamples <- 1000 # for stable results
+perf.m <- matrix(nrow = nsamples*n, ncol=2)
+perf.m[,1] <- rep(lp, nsamples)
+perf.m[,2] <- ifelse(runif(length(perf.m[,1]))<=plogis(perf.m[,1]), 1, 0) # Generate y for validation data
+perf.ref <- val.prob(logit=perf.m[,1],y=perf.m[,2]) # Determine reference values
 #For CURB-65
 dat_ec <-dat_ec %>% 
   mutate(score = age_cat+bun_cat+rr_cat+bp_cat+ams) %>% 
@@ -273,7 +285,22 @@ summary(table1)
 ext.full <- glm(death ~ offset(1*(age_cat+bun_cat+rr_cat+bp_cat+ams)),
                 data=dat_ec, x=TRUE, y=TRUE) #Not lrm
 dcaVal  <- dca(yvar=val$death, xmatrix=plogis(lp.val), prob="Y")
-###Penalization
+###Shrinkage & penalization
+#Uniform shrinkage
+full.shrunk <- full
+val.full  <- validate(full, B=200)
+full.shrunk$coef <- val.full[4,5] * full.shrunk$coef  #val.full[4,5] is shrinkage factor; heuristic estimate (LR - df) / LR
+full.shrunk$coef[1] <- lrm.fit(y=full$y, offset= full$x %*% full.shrunk$coef[2:5])$coef[1]
+full.shrunk$coef /full$coef
+full.shrunk
+#Penalized maximum likelihood estimation
+p	<- pentrace(full, c(0,1,2,3,4,5,6,7,8,9,10,12,14,20)) #determine performance over range of penalties
+plot(p, which='aic.c', xlim=c(0,15))
+p$penalty         # Optimal penalty factor is 12
+full.pen	<- update(full, penalty=p$penalty) 
+full.pen$coef / full$coef 
+diag(full.pen$var) / diag(full$var)
+full.pen
 #Restricted cubic splines
 lrm(death ~ rcs(age,4) + gender + rcs(hr,4)+rcs(rr,4), data = dat_c)
 #Fractional polynomials
@@ -281,7 +308,16 @@ mfp(death ~ fp(age) + gender + fp(hr)+fp(rr), alpha = 1, data = dat_c, family = 
 #Generalized additive model
 gam(death ~ s(age) + gender+s(hr)+s(rr), data = dat_c, family = binomial)
 #LASSO
-glmmod <- glmnet(full$x, y=full$y, alpha=1, family="binomial")
+#Standardize predictors first (using "scale" function).
+full_c <- lrm(death ~ age+gender+hr+rr, data=dat_c, x = TRUE, y = TRUE)
+glmmod <- glmnet(full$x, y=full$y, alpha=1, family="binomial") #Lidge: alpha=0
+plot(glmmod)
+set.seed(123)
+cv <- cv.glmnet(x=full$x, y=full$y, alpha = 1, family=c("binomial"))
+plot(cv) 
+model.L1 <- glmnet(x=full$x, y=full$y, alpha=1, lambda=cv$lambda.min,
+                    family=c("binomial"))
+coef(model.L1)
 ##Multilevel model
 #Random intercept model
 ICCest(as.factor(hospital), death, data=dat_c, alpha=0.05, CI.type="Smith")

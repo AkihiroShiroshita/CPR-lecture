@@ -331,9 +331,10 @@ mu1<-6.0
 sd<-1.4	
 N<-30	#Sample size
 for (i in 1:B){	
-	set.seed(12300+123*i)		#Setting the seed number for random number generation, this is to make sure the result will be reproducible.
+	set.seed(12300+123*i)	
 	sim.data<-rexp(n=N, rate=1/mu1)
-	p.res[i]<-t.test(x=sim.data,  alternative = c( "greater"),  mu = mu0, conf.level = 1-alpha)$"p.value"
+	p.res[i]<-t.test(x=sim.data,  alternative = c( "greater"),
+	                 mu = mu0, conf.level = 1-alpha)$"p.value"
 }
 tmp<-ifelse(p.res<alpha,1,0) 
 power.res<-sum(tmp)/B
@@ -470,7 +471,8 @@ fam.dist<-c(1/3, 1/2, 1/6)
 		###Run the LME
 		y.vec<-c(c(t(y.fam1)), c(t(y.fam2)), c(t(y.fam3)))
 		dataset<-data.frame(y.vec, x.vec, id.vec)	#Create the dataset
-		data.formu<-groupedData(y.vec~x.vec|id.vec, data=dataset)	#Attacheh the formula to the dataset attribute
+		data.formu<-groupedData(y.vec~x.vec|id.vec, data=dataset)	
+		#Attacheh the formula to the dataset attribute
 		res<-lme(data.formu, random=~1)		
 		p.value[i]<-summary(res)$tTable["x.vec","p-value"]
 	}
